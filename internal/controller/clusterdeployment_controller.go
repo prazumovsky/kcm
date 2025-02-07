@@ -792,6 +792,7 @@ func (r *ClusterDeploymentReconciler) SetupWithManager(mgr ctrl.Manager) error {
 
 	return ctrl.NewControllerManagedBy(mgr).
 		For(&kcm.ClusterDeployment{}).
+		WatchesRawSource(source.Kind(mgr, &hcv2.HelmRelease{})).
 		Watches(&hcv2.HelmRelease{},
 			handler.EnqueueRequestsFromMapFunc(func(ctx context.Context, o client.Object) []ctrl.Request {
 				clusterDeploymentRef := client.ObjectKeyFromObject(o)
