@@ -34,6 +34,10 @@ CONTAINER_TOOL ?= docker
 SHELL = /usr/bin/env bash -o pipefail
 .SHELLFLAGS = -ec
 
+TEMPLATES_DIR := templates
+PROVIDER_TEMPLATES_DIR := $(TEMPLATES_DIR)/provider
+CLUSTER_TEMPLATES_DIR := $(TEMPLATES_DIR)/cluster
+
 .PHONY: all
 all: build
 
@@ -90,8 +94,21 @@ kcm-dist-release: helm yq
 templates-generate:
 	@hack/templates.sh
 
+CAPO_DIR := $(PROVIDER_TEMPLATES_DIR)/cluster-api-provider-openstack
+CAPO_ORC_VERSION ?= $(shell grep 'orcVersion:' $(CAPO_DIR)/values.yaml | cut -d '"' -f 2)
+CAPO_ORC_TEMPLATE := "$(CAPO_DIR)/templates/orc-$(shell echo $(CAPO_ORC_VERSION) | sed 's/\./-/g').yaml"
+.PHONY: capo-orc-fetch
+capo-orc-fetch: yq
+	@if ! test -s "$(CAPO_ORC_TEMPLATE)"; then \
+	  	curl -L --fail -s https://github.com/k-orc/openstack-resource-controller/releases/download/v$(CAPO_ORC_VERSION)/install.yaml -o $(CAPO_ORC_TEMPLATE); \
+	  	$(YQ) -i '(select(.kind == "Deployment") | .spec.template.spec.containers.[0].image) |= sub("$(CAPO_ORC_VERSION)"/"{{ .Values.orcVersion }}")' $(CAPO_ORC_TEMPLATE); \
+	  	printf '%s\n' "{{ if (eq .Values.orcVersion \"$(CAPO_ORC_VERSION)\") }}" | cat - $(CAPO_ORC_TEMPLATE) > $(CAPO_ORC_TEMPLATE).tmp; \
+	  	mv $(CAPO_ORC_TEMPLATE).tmp $(CAPO_ORC_TEMPLATE); \
+	  	echo "{{- end }}" >> $(CAPO_ORC_TEMPLATE); \
+	fi
+
 .PHONY: generate-all
-generate-all: generate manifests templates-generate add-license projectsveltos-crds
+generate-all: generate manifests templates-generate add-license projectsveltos-crds capo-orc-fetch
 
 .PHONY: projectsveltos-crds
 projectsveltos-crds: sveltos-crds yq
@@ -135,10 +152,6 @@ add-license: addlicense
 	$(ADDLICENSE) -c "" -ignore ".github/**" -ignore "config/**" -ignore "templates/**" -ignore "bin/**" -ignore ".*" .
 
 ##@ Package
-
-TEMPLATES_DIR := templates
-PROVIDER_TEMPLATES_DIR := $(TEMPLATES_DIR)/provider
-CLUSTER_TEMPLATES_DIR := $(TEMPLATES_DIR)/cluster
 
 CHARTS_PACKAGE_DIR ?= $(LOCALBIN)/charts
 $(CHARTS_PACKAGE_DIR): | $(LOCALBIN)
